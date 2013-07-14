@@ -1,0 +1,206 @@
+#******************************************************************************
+#*                                                                            *
+#* This program is distributed in the hope that it will be useful, but        *
+#* WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY *
+#* or FITNESS FOR A PARTICULAR PURPOSE. This file and program are licensed    *
+#* under the GNU Lesser General Public License Version 3, 29 June 2007.       *
+#* The complete license can be accessed from the following location:          *
+#* http://opensource.org/licenses/lgpl-3.0.html                               *
+#*                                                                            *
+#* Author: Yun Li             (yunli.open@gmail.com)                          *
+#*   Date: 05/22/2010                                                         *
+#*                                                                            *
+#* Author: Gavin Ding         (fanfan.ding.ict@gmail.com)                     *
+#*   Date: 03/17/2013                                                         *
+#*                                                                            *
+#******************************************************************************
+
+#******************************************************************************
+# REVISION HISTORY
+# ================
+# 
+# Date         Version       Name              Description
+# ----------   ------------  ----------------  --------------------------------
+# 03/17/2013   V001.000.000  Gavin Ding        rewrite this file
+# ----------   ------------  ----------------  --------------------------------   
+#
+#******************************************************************************
+
+### build path ###
+ROOT  := $(abspath $(ROOT))
+BUILD := $(abspath $(BUILD))
+
+### build targets ###
+RELEASE = release
+DEBUG   = debug
+UNITEST = unitest
+CLEAN   = clean
+TOUCH   = touch
+SCHECK  = scheck
+
+### objs directories ###
+DIR_ROBJS = robjs
+DIR_DOBJS = dobjs
+DIR_UOBJS = uobjs
+DIR_SOBJS = sobjs
+
+### libraries and interfaces publication directories ###
+DIR_PUB_LIB = $(ROOT)/pub/lib 
+DIR_PUB_INC = $(ROOT)/pub/inc 
+
+### commands and flags ###
+MKDIR    = mkdir
+RM       = rm
+RMFLAGS  = -fr
+# pc-lint's name
+CHKER    = lint-nt.exe  
+# pc-lint's parameters (part)
+CHKFLAGS = -v std.lnt
+
+## for platform difference dealing, set AR and CC later ##
+# AR      = ar
+ARFLAGS = crs
+# CC      = gcc
+CFLAGS += -Wall -std=gnu99
+
+ifeq ("$(MAKECMDGOALS)", "")
+    MAKECMDGOALS = $(RELEASE)
+endif
+
+ifeq ("$(MAKECMDGOALS)", "$(RELEASE)")
+    DIR_OBJS = $(DIR_ROBJS)
+    AR       = ar
+    CC       = gcc
+    CFLAGS  += -gdwarf-2 -g3 -O2
+endif
+
+ifeq ("$(MAKECMDGOALS)", "$(DEBUG)")
+    DIR_OBJS = $(DIR_DOBJS)
+    AR       = ar
+    CC       = gcc
+    CFLAGS  += -gdwarf-2 -g3
+endif
+
+ifeq ("$(MAKECMDGOALS)", "$(UNITEST)")
+    DIR_OBJS   = $(DIR_UOBJS)
+    AR         = ar
+    CC         = gcc
+    CFLAGS    += -gdwarf-2 -g3
+    CFLAGS    += -DUNITEST  # define macro "UNITEST" for convenience
+    CFLAGS    += -fprofile-arcs -ftest-coverage  # for coverage report
+    LINK_LIBS += gcov                            # for coverage report
+endif
+
+ifeq ("$(MAKECMDGOALS)", "$(SCHECK)")
+    DIR_OBJS = $(DIR_SOBJS)
+endif
+
+DIR_TARGET = $(BUILD)/$(MAKECMDGOALS)
+DIRS       = $(DIR_OBJS) $(DIR_TARGET)
+DIR_CHKER  = $(ROOT)/tools/lint
+
+SRCS  = $(wildcard *.c)
+ASMS  = $(wildcard *.S)
+UTS   = $(wildcard unitest_*.c)
+OBJS := $(addprefix $(DIR_OBJS)/, $(SRCS:.c=.o)) $(addprefix $(DIR_OBJS)/, $(ASMS:.S=.o))
+DEPS := $(addprefix $(DIR_OBJS)/, $(SRCS:.c=.dep)) $(addprefix $(DIR_OBJS)/, $(ASMS:.S=.dep))
+CHKS := $(addprefix $(DIR_OBJS)/, $(SRCS:.c=.chk))
+RMS   = $(DIR_ROBJS) $(DIR_DOBJS) $(DIR_UOBJS) $(DIR_SOBJS)
+
+ifneq ("$(EXE)", "")
+    EXE := $(addprefix $(DIR_TARGET)/, $(EXE))
+    RMS += $(EXE)
+endif
+ifneq ("$(UTS)", "")
+    UTS := $(addprefix $(DIR_TARGET)/, $(UTS:.c=.exe))
+    RMS += $(UTS)
+endif
+ifneq ("$(LIB)", "")
+    LIB := $(addprefix $(DIR_TARGET)/, $(LIB))
+    RMS += $(LIB)
+endif
+
+ifeq ("$(wildcard $(DIR_OBJS))", "")
+    DEP_DIR_OBJS := $(DIR_OBJS)
+endif
+ifeq ("$(wildcard $(DIR_TARGET))", "")
+    DEP_DIR_TARGET := $(DIR_TARGET)
+endif
+
+ifneq ("$(INCLUDE_DIRS)", "")
+    ifeq ($(MAKECMDGOALS), $(SCHECK))
+        CHK_INCLUDE_DIRS += $(INCLUDE_DIRS) 
+        CHK_INCLUDE_DIRS := $(shell cygpath -w -p $(CHK_INCLUDE_DIRS))
+        CHK_INCLUDE_DIRS := $(addprefix ", $(CHK_INCLUDE_DIRS))
+        CHK_INCLUDE_DIRS := $(addsuffix ", $(CHK_INCLUDE_DIRS))
+        CHK_INCLUDE_DIRS := $(addprefix -I, $(CHK_INCLUDE_DIRS))
+        CHK_INCLUDE_DIRS := $(strip $(CHK_INCLUDE_DIRS))
+    endif
+    INCLUDE_DIRS := $(strip $(INCLUDE_DIRS))
+    INCLUDE_DIRS := $(addprefix -I, $(INCLUDE_DIRS))
+endif
+
+ifneq ("$(LINK_LIBS)", "")
+    LINK_LIBS      := $(strip $(LINK_LIBS))
+    LIB_ALL        := $(notdir $(wildcard $(DIR_PUB_LIB)/*))
+    LIB_FILTERED   := $(addsuffix %, $(addprefix lib, $(LINK_LIBS)))
+    $(eval DEP_LIBS = $(filter $(LIB_FILTERED), $(LIB_ALL)))
+    DEP_LIBS       := $(addprefix $(DIR_PUB_LIB)/, $(DEP_LIBS))
+    LINK_LIBS      := $(addprefix -l, $(LINK_LIBS))
+endif
+
+
+.PHONY: $(RELEASE) $(DEBUG) $(CLEAN) $(UNITEST) $(SCHECK)
+
+$(RELEASE) $(DEBUG) $(UNITEST): $(EXE) $(LIB) $(UTS)
+$(CLEAN):
+	$(RM) $(RMFLAGS) $(RMS)
+$(SCHECK): $(CHKS)	
+
+ifneq ("$(MAKECMDGOALS)", "$(CLEAN)")
+    include $(DEPS)
+endif
+
+ifeq ($(MAKECMDGOALS), $(SCHECK))
+    CHK_CHKER_DIR += $(DIR_CHKER)    
+    CHK_CHKER_DIR := $(shell cygpath -w -p $(CHK_CHKER_DIR))
+    CHK_CHKER_DIR := $(addprefix ", $(CHK_CHKER_DIR))
+    CHK_CHKER_DIR := $(addsuffix ", $(CHK_CHKER_DIR))
+    CHK_CHKER_DIR := $(addprefix -I, $(CHK_CHKER_DIR))
+    CHK_CHKER_DIR := $(strip $(CHK_CHKER_DIR))
+    CHK_ROOT_DIR := $(shell cygpath -w -p $(ROOT))
+endif
+
+$(DIRS):
+	$(MKDIR) $@
+$(EXE): $(DEP_DIR_TARGET) $(OBJS) $(DEP_LIBS)
+	$(CC) -L$(DIR_PUB_LIB) -o $@ $(filter %.o, $^) $(LINK_LIBS)
+$(UTS): $(DEP_DIR_TARGET) $(DEP_LIBS)
+	$(CC) -L$(DIR_PUB_LIB) -o $@ $(filter %.o, $^) $(LINK_LIBS)
+$(LIB): $(DEP_DIR_TARGET) $(OBJS)
+	$(AR) $(ARFLAGS) $@ $(filter %.o, $^)
+	cp -f $@ $(DIR_PUB_LIB)
+
+$(DIR_OBJS)/%.o: $(DEP_DIR_OBJS) %.c
+	$(CC) $(CFLAGS) $(INCLUDE_DIRS) -o $@ -c $(filter %.c, $^)
+$(DIR_OBJS)/%.o: $(DEP_DIR_OBJS) %.S
+	$(CC) $(CFLAGS) $(INCLUDE_DIRS) -o $@ -c $(filter %.S, $^)
+$(DIR_OBJS)/%.dep: $(DEP_DIR_OBJS) %.c
+	@echo "Creating $@ ..."
+	@set -e ; \
+	$(RM) $(RMFLAGS) $@.tmp ; \
+	$(CC) $(INCLUDE_DIRS) -E -MM $(filter %.c, $^) > $@.tmp ; \
+	sed 's,\(.*\)\.o[ :]*,$(DIR_OBJS)/\1.o $@ $(DIR_OBJS)/\1.chk: ,g' < $@.tmp > $@ ; \
+	$(RM) $(RMFLAGS) $@.tmp ; \
+	if [ -n "$(UTS)" ]; then echo "$(DIR_TARGET)/$*.exe: $(DIR_OBJS)/$*.o" >> $@; fi
+$(DIR_OBJS)/%.dep: $(DEP_DIR_OBJS) %.S
+	@echo "Creating $@ ..."
+	@set -e ; \
+	$(RM) $(RMFLAGS) $@.tmp ; \
+	$(CC) $(INCLUDE_DIRS) -E -MM $(filter %.S, $^) > $@.tmp ; \
+	sed 's,\(.*\)\.o[ :]*,$(DIR_OBJS)/\1.o $@: ,g' < $@.tmp > $@ ; \
+	$(RM) $(RMFLAGS) $@.tmp ; 
+$(DIR_OBJS)/%.chk: $(DEP_DIR_OBJS) %.c
+	$(DIR_CHKER)/$(CHKER) $(CHK_CHKER_DIR) $(CHK_INCLUDE_DIRS) $(CHKFLAGS) -libdir"($(CHK_ROOT_DIR)\*)" $(filter %.c, $^)
+	@touch $@
+	
